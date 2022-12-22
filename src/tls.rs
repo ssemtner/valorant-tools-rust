@@ -1,4 +1,4 @@
-use crate::errors::*;
+use anyhow::Result;
 
 use rustls::ClientConfig;
 
@@ -13,7 +13,7 @@ pub fn create_tls_config() -> Result<ClientConfig> {
         )
     }));
 
-    let cipher_suites = lookup_suites(CIPHER_SUITES); 
+    let cipher_suites = lookup_suites(CIPHER_SUITES);
 
     let config = ClientConfig::builder()
         .with_cipher_suites(&cipher_suites)
@@ -57,4 +57,30 @@ fn lookup_suites(suites: &[&str]) -> Vec<rustls::SupportedCipherSuite> {
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lookup_suites() {
+        let suites = lookup_suites(CIPHER_SUITES);
+
+        assert_eq!(suites.len(), 4);
+    }
+
+    #[test]
+    fn test_find_suite() {
+        let suite = find_suite("TLS13_CHACHA20_POLY1305_SHA256");
+
+        assert!(suite.is_some());
+    }
+
+    #[test]
+    fn test_create_tls_config() {
+        let config = create_tls_config();
+
+        assert!(config.is_ok());
+    }
 }

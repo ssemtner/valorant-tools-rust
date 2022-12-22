@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
 use reqwest::header;
-use reqwest::header::HeaderMap;
 
-use crate::errors::*;
+use anyhow::Result;
 use crate::tls;
 
 pub enum Method {
@@ -35,17 +34,18 @@ impl Request<'_> {
         self.headers.insert(key.to_string(), value.to_string());
     }
 
+    #[allow(dead_code)]
     pub fn add_body<TKey: ToString, TValue: ToString>(&mut self, key: TKey, value: TValue) {
         self.body.insert(key.to_string(), value.to_string());
     }
 
-    pub fn set_header(&mut self, headers: HashMap<&str, &str>) {
+    pub fn append_headers<TKey: ToString, TValue: ToString>(&mut self, headers: HashMap<TKey, TValue>) {
         for (key, value) in headers {
             self.headers.insert(key.to_string(), value.to_string());
         }
     }
 
-    pub fn set_body(&mut self, headers: HashMap<&str, &str>) {
+    pub fn append_body<TKey: ToString, TValue: ToString>(&mut self, headers: HashMap<TKey, TValue>) {
         for (key, value) in headers {
             self.body.insert(key.to_string(), value.to_string());
         }
@@ -117,5 +117,44 @@ impl Client {
 
     pub fn put(&self, url: &str) -> reqwest::RequestBuilder {
         self.reqwest_client.put(url)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_client_headers() {
+        let client = Client::new().unwrap();
+
+        let request = Request::new(&client, "https://valorant-api.com/v1/version".to_string(), Method::GET);
+
+        let response = request.send().await.unwrap();
+
+        assert!(response.status().is_success());
+    }
+
+    #[tokio::test]
+    async fn test_create_client() {
+        let client = Client::new();
+
+        assert!(client.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_append_headers() {
+        let client = Client::new().unwrap();
+
+        let mut request = Request::new(&client, "https://google.com/".to_string(), Method::GET);
+
+        let mut headers = HashMap::new();
+        headers.insert("Test", "abc");
+        headers.insert("y", "x");
+
+        request.append_headers(headers);
+
+        assert_eq!(request.headers.get("Test").unwrap(), "abc");
+        assert_eq!(request.headers.len(), 2);
     }
 }

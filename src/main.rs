@@ -1,70 +1,92 @@
-use auth::handshake;
-use reqwest;
-use std::collections::HashMap;
+#[macro_use]
+extern crate rocket;
+
+use rocket::http::{Cookie, Status};
+use rocket::response::{content, status};
+use rocket::serde::{Deserialize, Serialize};
+use rocket::serde::json::Json;
+use rocket::http::CookieJar;
+
 use requests::*;
 
+use crate::auth::AuthData;
+use crate::history::MatchHistoryEntry;
+
+mod r#match;
 mod auth;
 mod requests;
 mod tls;
+mod common;
+mod inventory;
+mod history;
+mod player;
 
-mod errors {
-    error_chain::error_chain! {
-        foreign_links {
-            Io(std::io::Error);
-            HttpRequest(reqwest::Error);
-            SerdeJson(serde_json::Error);
-            Url(url::ParseError);
-        }
-    }
+#[rocket::main]
+async fn main() {
+    let _ = rocket::build()
+        // .mount("/", routes![index])
+        .mount("/auth", routes![login])
+        .mount("/history", routes![get_match_history])
+        .launch().await;
 }
 
-use errors::*;
-use crate::auth::{entitlements, login};
+// #[tokio::main]
+// #[get("/")]
+// async fn index() -> Json<Vec<history::MatchHistoryEntry>> {
+//     let client = Client::new().unwrap();
+//     let auth_data = auth::authenticate(&client, "", "").await.unwrap();
+//     // println!("{:?}", &auth_data);
+//     //
+//
+//     let history = history::get_match_history(&client, &auth_data, &auth_data.user_id).await.unwrap();
+//
+//     // let wallet = inventory::get_wallet(&client, &auth_data).await.unwrap();
+//     //
+//     // println!("{:?}", wallet);
+//     //
+//     let shop = inventory::get_shop(&client, &auth_data).await.unwrap();
+//     // println!("{:?}", shop);
+//
+//     Json(history)
+// }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // test::test();
-    let client = Client::new()?;
-    let asid = handshake(&client).await?;
-    let ld = login(&client, &asid, "u", "p").await?;
-    println!("{:?}", &ld);
-    let ent = entitlements(&client, &asid, &ld.access_token).await?;
-    println!("{}", &ent);
+#[derive(Deserialize, Debug, Serialize)]
+struct AuthRequest<'a> {
+    username: &'a str,
+    password: &'a str,
+}
 
-    // let req = Request::new(&client, "https://pd.na.a.pvp.net/mmr/v1/players/{puuid}".to_string(), Method::GET);
+#[post("/login", data = "<auth_request>")]
+async fn login(cookie_jar: &CookieJar<'_>, auth_request: Json<AuthRequest<'_>>) -> Json<AuthData> {
+    let client = Client::new().unwrap();
+    let auth_data = auth::authenticate(&client, auth_request.username, auth_request.password).await.unwrap();
 
+    cookie_jar.add(Cookie::new("auth_data", serde_json::to_string(&auth_data).unwrap()));
 
-    // let client = reqwest::ClientBuilder::new()
-    //     .use_preconfigured_tls(tls_config)
-    //     .build()?;
-    // // let mut res = client.get("https://randomuser.me/api").send()?;
-    // // let mut body = String::new();
-    // // res.read_to_string(&mut body)?;
-    // let mut body = HashMap::new();
-    // body.insert("client_id", "play-valorant-web-prod");
-    // body.insert("nonce", "1");
-    // body.insert("redirect_uri", "https://playvalorant.com/opt_in");
-    // body.insert("response_type", "token id_token");
-    // body.insert("scope", "account openid");
-    //
-    // let req = client
-    //     .post("https://auth.riotgames.com/api/v1/authorization")
-    //     .json(&body)
-    //     .header("Content-Type", "application/json")
-    //     .header(
-    //         "User-Agent",
-    //         "RiotClient/60.0.10.4802528.4749685 rso-auth (Windows; 10;;Professional, x64)",
-    //     )
-    //     .header("Cookie", "");
-    //
-    // let res = req.send().await?;
-    //
-    // // let mut body = String::new();
-    // // res.read_to_string(&mut body)?;
-    //
-    // println!("Status: {}", res.status());
-    // println!("Headers:\n{:#?}", res.headers());
-    // println!("Body:\n{}", res.text().await?);
+    Json(auth_data)
+}
 
-    Ok(())
+#[derive(Serialize, Deserialize)]
+struct MatchHistoryRequest<'a> {
+    player_id: &'a str,
+}
+
+#[get("/", data = "<req_data>")]
+async fn get_match_history(cookie_jar: &CookieJar<'_>, req_data: Json<MatchHistoryRequest<'_>>) -> Json<Vec<MatchHistoryEntry>> {
+    let client = Client::new().unwrap();
+
+    println!("{:?}", req_data.player_id);
+    let auth_data = serde_json::from_str::<AuthData>(cookie_jar.get("auth_data").unwrap().value()).unwrap();
+
+    let history = history::get_match_history(&client, &auth_data, req_data.player_id).await.unwrap();
+
+    Json(history)
+}
+
+#[macro_export] macro_rules! hashmap {
+    ($( $key: expr => $val: expr ),*) => {{
+        let mut map = ::std::collections::HashMap::new();
+        $( map.insert($key, $val); )*
+        map
+    }}
 }
